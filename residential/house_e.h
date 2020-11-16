@@ -406,6 +406,7 @@ private:
 	void set_window_shgc();
 	void set_window_Rvalue();
 	// internal variables used to track state of house */
+	bool hard_code_2r2c;
 	double dTair;
 	double a,b,c,d,c1,c2,A3,A4,k1,k2,r1,r2,Teq,Tevent,Qi,Qa,Qm,adj_cooling_cap,adj_heating_cap,adj_cooling_cop,adj_heating_cop;
 	double Qlatent;

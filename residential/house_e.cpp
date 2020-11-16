@@ -3,14 +3,11 @@
 	@file house_e.cpp
 	@addtogroup house_e
 	@ingroup residential
-
 	The house_e object implements a single family home.  The house_e
 	only includes the heating/cooling system and the power panel.
 	All other end-uses must be explicitly defined and attached to the
 	panel using the house_e::attach() method.
-
 	Residential panels use a split secondary transformer:
-
 	@verbatim
 		-----)||(------------------ 1    <-- 120V
 		     )||(      120V         ^
@@ -18,21 +15,17 @@
 		     )||(      120V         v
 		-----)||(------------------ 2    <-- 120V
 	@endverbatim
-
 	120V objects are assigned alternatively to circuits 1-3 and 2-3 in the order
 	in which they call attach. 240V objects are assigned to circuit 1-2
-
 	Circuit breakers will open on over-current with respect to the maximum current
 	given by load when house_e::attach() was called.  After a breaker opens, it is
 	reclosed within an average of 5 minutes (on an exponential distribution).  Each
 	time the breaker is reclosed, the breaker failure probability is increased.
 	The probability of failure is always 1/N where N is initially a large number (e.g., 100). 
 	N is progressively decremented until it reaches 1 and the probability of failure is 100%.
-
 	The Equivalent Thermal Parameter (ETP) approach is used to model the residential loads
 	and energy consumption.  Solving the ETP model simultaneously for T_{air} and T_{mass},
 	the heating/cooling loads can be obtained as a function of time.
-
  *  In the current implementation, the HVAC equipment is defined
  *  as part of the house_e and attached to the electrical panel
  *  with a 50 amp/220-240V circuit.  
@@ -65,42 +58,32 @@
  *  three-phase or single-phase power to the external power
  *  flow. commercial_load_parent is the flag indicating such
  *  connections.
-
 	@par Implicit enduses
-
 	The use of implicit enduses is controlled globally by the #implicit_enduse global variable.
 	All houses in the system will employ the same set of global enduses, meaning that the
 	loadshape is controlled by the default schedule.
-
 	@par Credits
-
 	The original concept for ETP was developed by Rob Pratt and Todd Taylor around 1990.  
 	The first derivation and implementation of the solution was done by Ross Guttromson 
 	and David Chassin for PDSS in 2004.
-
 	@par Billing system
-
 	Contract terms are defined according to which contract type is being used.  For
 	subsidized and fixed price contracts, the terms are defined using the following format:
 	\code
 	period=[YQMWDH];fee=[$/period];energy=[c/kWh];
 	\endcode
-
 	Time-use contract terms are defined using
 	\code
 	period=[YQMWDH];fee=[$/period];offpeak=[c/kWh];onpeak=[c/kWh];hours=[int24mask];
 	\endcode
-
 	When TOU includes critical peak pricing, use
 	\code
 	period=[YQMWDH];fee=[$/period];offpeak=[c/kWh];onpeak=[c/kWh];hours=[int24mask]>;critical=[$/kWh];
 	\endcode
-
 	RTP is defined using
 	\code
 	period=[YQMWDH];fee=[$/period];bid_fee=[$/bid];market=[name];
 	\endcode
-
 	Demand pricing uses
 	\code
 	period=[YQMWDH];fee=[$/period];energy=[c/kWh];demand_limit=[kW];demand_price=[$/kW];
@@ -462,6 +445,7 @@ house_e::house_e(MODULE *mod) : residential_enduse(mod)
 			PT_double,"hvac_duty_cycle",PADDR(hvac_duty_cycle),
 
 			// these are hidden so we can spy on ETP
+            PT_bool,"hard_code_2r2c",PADDR(hard_code_2r2c),PT_DESCRIPTION,"logic statement for if the user is allowed to hardcode parameters r1,r2,c1,c2 below. 0 - default operation, 1 - modeller can hard code values",
 			PT_double,"a",PADDR(a),PT_ACCESS,PA_HIDDEN,
 			PT_double,"b",PADDR(b),PT_ACCESS,PA_HIDDEN,
 			PT_double,"c",PADDR(c),PT_ACCESS,PA_HIDDEN,
@@ -595,6 +579,9 @@ int house_e::create()
 	//Set thermal storage flag
 	thermal_storage_present = false;
 	thermal_storage_inuse = false;
+
+    //Set hard_coding 2R2C flag - deafult to false - user can modify this via GLM files.
+    hard_code_2r2c = false; 
 
 	//Null out circuit pointer
 	pHVAC_EnduseLoad = NULL;
@@ -1800,26 +1787,38 @@ int house_e::init(OBJECT *parent)
 #define dTa (dTair)
 #define Tm (Tmaterials)
 
-	if (Ca<=0)
-		throw "air_thermal_mass must be positive";
-	if (Cm<=0)
-		throw "house_content_thermal_mass must be positive";
-	if(Hm <= 0)
-		throw "house_content_heat_transfer_coeff must be positive";
-	if(Ua < 0)
-		throw "UA must be positive";
+    if (hard_code_2r2c == false)
+    {
+        if (Ca<=0)
+            throw "air_thermal_mass must be positive";
+        if (Cm<=0)
+            throw "house_content_thermal_mass must be positive";
+        if(Hm <= 0)
+            throw "house_content_heat_transfer_coeff must be positive";
+        if(Ua < 0)
+            throw "UA must be positive";
 
-	a = Cm*Ca/Hm;
-	b = Cm*(Ua+Hm)/Hm+Ca;
-	c = Ua;
-	c1 = -(Ua + Hm)/Ca;
-	c2 = Hm/Ca;
-	double rr = sqrt(b*b-4*a*c)/(2*a);
-	double r = -b/(2*a);
-	r1 = r+rr;
-	r2 = r-rr;
-	A3 = Ca/Hm * r1 + (Ua+Hm)/Hm;
-	A4 = air_thermal_mass/Hm * r2 + (Ua+Hm)/Hm;
+        a = Cm*Ca/Hm;
+        b = Cm*(Ua+Hm)/Hm+Ca;
+        c = Ua;
+        c1 = -(Ua + Hm)/Ca;
+        c2 = Hm/Ca;
+        double rr = sqrt(b*b-4*a*c)/(2*a);
+        double r = -b/(2*a);
+        r1 = r+rr;
+        r2 = r-rr;
+        A3 = Ca/Hm * r1 + (Ua+Hm)/Hm;
+        A4 = air_thermal_mass/Hm * r2 + (Ua+Hm)/Hm;
+    }
+    else{
+        	gl_warning("You are forcing GL to take user specified values for 2r2c parameters. If you have not given these values, they will default to zero, and odd behaviour will result. Heating system sizes will be calculated based on the default house, so you may be better specifying this explicitly");
+        // do nothing within init - just blindly take the user inputs
+        // in future, there needs to be an implementation of back calculating Ca; Cm; Hm; Ua to avoid updating issues.
+        // The main paramters will get default house values if not specified. 
+        // there may be unexpected issues here because the intermediate variables are not defined. 
+        // setting these as zero may help.
+        
+    }
 
 	// outside temperature init
 	outside_temperature = default_outdoor_temperature;
@@ -1999,46 +1998,53 @@ void house_e::update_model(double dt)
 	double number_of_quadrants = 0;
 
 	// recalculate the constants of the ETP equations based off of the ETP parameters.
-	if (Ca<=0)
-		throw "air_thermal_mass must be positive";
-	if (Cm<=0)
-		throw "house_content_thermal_mass must be positive";
-	if(Hm <= 0)
-		throw "house_content_heat_transfer_coeff must be positive";
-	if(Ua < 0)
-		throw "UA must be positive";
+    if (hard_code_2r2c == false){
+        if (Ca<=0)
+            throw "air_thermal_mass must be positive";
+        if (Cm<=0)
+            throw "house_content_thermal_mass must be positive";
+        if(Hm <= 0)
+            throw "house_content_heat_transfer_coeff must be positive";
+        if(Ua < 0)
+            throw "UA must be positive";
 
-	a = Cm*Ca/Hm;
-	
-	if (window_open == 1)
-	{
-		b = Cm*(10*Ua+Hm)/Hm+Ca;
-		c = 10*Ua;
-		c1 = -(10*Ua + Hm)/Ca;
-	}
-	else
-	{
-		b = Cm*(Ua+Hm)/Hm+Ca;
-		c = Ua;
-		c1 = -(Ua + Hm)/Ca;
-	}
+        a = Cm*Ca/Hm;
+        
+        if (window_open == 1)
+        {
+            b = Cm*(10*Ua+Hm)/Hm+Ca;
+            c = 10*Ua;
+            c1 = -(10*Ua + Hm)/Ca;
+        }
+        else
+        {
+            b = Cm*(Ua+Hm)/Hm+Ca;
+            c = Ua;
+            c1 = -(Ua + Hm)/Ca;
+        }
 
-	c2 = Hm/Ca;
-	double rr = sqrt(b*b-4*a*c)/(2*a);
-	double r = -b/(2*a);
-	r1 = r+rr;
-	r2 = r-rr;
+        c2 = Hm/Ca;
+        double rr = sqrt(b*b-4*a*c)/(2*a);
+        double r = -b/(2*a);
+        r1 = r+rr;
+        r2 = r-rr;
 
-	if (window_open == 1)
-	{
-		A3 = Ca/Hm * r1 + (10*Ua+Hm)/Hm;
-		A4 = Ca/Hm * r2 + (10*Ua+Hm)/Hm;
-	}
-	else
-	{
-		A3 = Ca/Hm * r1 + (Ua+Hm)/Hm;
-		A4 = Ca/Hm * r2 + (Ua+Hm)/Hm;
-	}
+        if (window_open == 1)
+        {
+            A3 = Ca/Hm * r1 + (10*Ua+Hm)/Hm;
+            A4 = Ca/Hm * r2 + (10*Ua+Hm)/Hm;
+        }
+        else
+        {
+            A3 = Ca/Hm * r1 + (Ua+Hm)/Hm;
+            A4 = Ca/Hm * r2 + (Ua+Hm)/Hm;
+        }
+    }
+    else{
+        // no updates carried out - 2r2c parameters remain as is - but the intermediate variables may need to change.
+        // since all of the variables are constants, nothing needs to change in here. 
+        // A3 and A4 for window openings could change, but these are not used in our simulations. 
+    }
 
 	//If we're a valid climate object, update out values
 	if (proper_climate_found == true)
@@ -2517,10 +2523,17 @@ TIMESTAMP house_e::presync(TIMESTAMP t0, TIMESTAMP t1)
 			const double e1 = k1*exp(r1*dt);
 			const double e2 = k2*exp(r2*dt);
 			Tair = e1 + e2 + Teq;
-			if (window_open == 1)
-				Tmaterials = A3*e1 + A4*e2 + Qm/Hm + (Qm+Qa)/(10*Ua) + Tout;
-			else
-				Tmaterials = A3*e1 + A4*e2 + Qm/Hm + (Qm+Qa)/(Ua) + Tout;
+            if (hard_code_2r2c == false){            
+                if (window_open == 1)
+                    Tmaterials = A3*e1 + A4*e2 + Qm/Hm + (Qm+Qa)/(10*Ua) + Tout;
+                else
+                    Tmaterials = A3*e1 + A4*e2 + Qm/Hm + (Qm+Qa)/(Ua) + Tout;
+            }
+            else{
+                gl_warning("Using hard_code_2r2c means that temperature warnings need to be disabled");
+				Tmaterials = 60; //to avoid warnings
+                // T materials can be ignored - lets set it so it doesn't impact future calculations and warn the user.
+            }
 		}
 	}
 
@@ -3545,7 +3558,6 @@ void house_e::push_complex_powerflow_values(void)
 	if (commercial_load_parent == true) {
 /*    
 	OBJECT *obj = OBJECTHDR(this);                                   
-
 		// for value_Shunt, value_Line_I and value_Power the circuit indices are:
 		//  0 = 1-N, 1 = 2-N, 2 = 1-2s
 		// Unlike for triplex meters, pShunt on loads is Z
@@ -3873,5 +3885,3 @@ EXPORT STATUS postupdate_house_e(OBJECT *obj)
 }
 
 /**@}**/
-
- 	  	 
